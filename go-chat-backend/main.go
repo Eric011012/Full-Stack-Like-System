@@ -12,61 +12,85 @@ import (
 	_ "github.com/lib/pq"
 )
 
+type StatsResponse struct {
+	Likes    int `json:"likes"`
+	Dislikes int `json:"dislikes"`
+}
+
+type InteractionRequest struct {
+	IsLike bool `json:"is_like"`
+}
+
 func main() {
-	// 1. 连接数据库 (请确保密码正确)
-	connStr := "user=postgres password=mysecretpassword dbname=postgres sslmode=disable"
+	connStr := "user=postgres password=mysecret dbname=postgres sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// 2. 自动初始化数据库结构
 	initSQL, err := os.ReadFile("db/init.sql")
 	if err != nil {
-		log.Printf("警告: 未能读取 init.sql 文件: %v", err)
+		log.Printf("Warning: Can't read init.sql file: %v", err)
 	} else {
 		_, err = db.Exec(string(initSQL))
 		if err != nil {
-			log.Fatalf("初始化数据库失败: %v", err)
+			log.Fatalf("Initialize DB failed: %v", err)
 		}
-		fmt.Println("数据库初始化成功")
+		fmt.Println("Initialize DB Success")
 	}
 
-	// 3. API 接口逻辑
-	http.HandleFunc("/api/like", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/interactions", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
-		// 1. 如果是 POST，插入一条新纪录
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
 		if r.Method == http.MethodPost {
-			_, err := db.Exec("INSERT INTO like_history DEFAULT VALUES")
+			var body InteractionRequest
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "Invalid Json", http.StatusBadRequest)
+				return
+			}
+
+			_, err := db.Exec("INSERT INTO interaction_history (is_like) VALUES ($1)", body.IsLike)
 			if err != nil {
-				// 这里如果报错，通常是因为 like_history 表还没建
-				log.Printf("写入失败: %v", err)
-				http.Error(w, err.Error(), 500)
+				log.Print("Insert failed: %v", err)
+				http.Error(w, "Database error", http.StatusInternalServerError)
 				return
 			}
 		}
 
-		// 2. 无论 GET 还是 POST，最后都统计总行数返回给前端
-		var totalLikes int
-		err := db.QueryRow("SELECT COUNT(*) FROM like_history").Scan(&totalLikes)
-		if err != nil {
-			log.Printf("查询失败: %v", err)
-			totalLikes = 0
+		if r.Method == http.MethodGet || r.Method == http.MethodPost {
+			query := `SELECT
+						count(*) FILTER (WHERE is_like = TRUE), count(*) FILTER (WHERE is_like = FALSE)
+						FROM interaction_history`
+
+			var stats StatsResponse
+
+			err = db.QueryRow(query).Scan(&stats.Likes, &stats.Dislikes)
+			if err != nil {
+				log.Printf("Query failing %v", err)
+				http.Error(w, "Query Error", http.StatusInternalServerError)
+				return
+			}
+
+			json.NewEncoder(w).Encode(stats)
+
 		}
 
-		// 3. 返回统计后的数字
-		json.NewEncoder(w).Encode(map[string]int{"count": totalLikes})
 	})
 
 	http.HandleFunc("/api/reset", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 		if r.Method == http.MethodPost {
-			// 使用 TRUNCATE 快速清空表，并重置自增 ID
-			_, err := db.Exec("TRUNCATE TABLE like_history RESTART IDENTITY")
+			_, err := db.Exec("TRUNCATE TABLE interaction_history RESTART IDENTITY")
 			if err != nil {
 				http.Error(w, err.Error(), 500)
 				return
