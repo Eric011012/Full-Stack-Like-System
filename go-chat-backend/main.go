@@ -21,6 +21,33 @@ type InteractionRequest struct {
 	IsLike bool `json:"is_like"`
 }
 
+type ReactionRequest struct {
+	MessageID int `json:"message_id"`
+	UserID int `json:"user_id"`
+	Emoji string `json:"emoji"`
+}
+
+func handleReaction(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var req ReactionRequest
+	json.NewDecoder(r.Body).Decode(&req)
+
+	res, _ := db.Exec("DELETE FROM reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3", req.MessageID, req.UserID, req.Emoji)
+	count, _ := res.RowsAffected()
+	if count == 0{
+		db.Exec("INSERT INTO reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)", req.MessageID, req.UserID, req.Emoji)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func main() {
 	connStr := "user=postgres password=mysecret dbname=postgres sslmode=disable"
 	db, err := sql.Open("postgres", connStr)
@@ -99,6 +126,9 @@ func main() {
 			json.NewEncoder(w).Encode(map[string]string{"message": "Reset successful"})
 		}
 	})
+
+	http.HandleFunc("/api/react", handleReaction)
+
 	fmt.Println("Server starting at :8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

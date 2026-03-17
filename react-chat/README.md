@@ -2,6 +2,17 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
+## Running the frontend only
+
+To view the UI without the Go backend or PostgreSQL:
+
+```bash
+cd react-chat
+npm run dev
+```
+
+Then open the URL shown (e.g. http://localhost:5173). The Feedback page will load; API calls will fail until the backend is running, but you can click between **Feedback** and **Messages** in the top nav to see both pages.
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
